@@ -182,6 +182,126 @@ class ZendeskClient:
         except Exception as e:
             raise Exception(f"Failed to fetch knowledge base: {str(e)}")
 
+    def search_articles(self, query: str, per_page: int = 25) -> List[Dict[str, Any]]:
+        """
+        Search Help Center articles by query string.
+        
+        Args:
+            query: Search query string
+            per_page: Number of results per page (max 100)
+            
+        Returns:
+            List of matching articles with id, title, snippet, section_id, html_url, locale
+        """
+        try:
+            params = {
+                'query': query,
+                'per_page': str(min(per_page, 100))
+            }
+            query_string = urllib.parse.urlencode(params)
+            url = f"{self.base_url}/help_center/articles/search.json?{query_string}"
+            
+            req = urllib.request.Request(url)
+            req.add_header('Authorization', self.auth_header)
+            req.add_header('Content-Type', 'application/json')
+            
+            with urllib.request.urlopen(req) as response:
+                data = json.loads(response.read().decode())
+            
+            results = data.get('results', [])
+            return [{
+                'id': article.get('id'),
+                'title': article.get('title'),
+                'snippet': article.get('snippet'),
+                'section_id': article.get('section_id'),
+                'html_url': article.get('html_url'),
+                'locale': article.get('locale')
+            } for article in results]
+        except urllib.error.HTTPError as e:
+            error_body = e.read().decode() if e.fp else "No response body"
+            raise Exception(f"Failed to search articles: HTTP {e.code} - {e.reason}. {error_body}")
+        except Exception as e:
+            raise Exception(f"Failed to search articles: {str(e)}")
+
+    def get_article(self, article_id: int) -> Dict[str, Any]:
+        """
+        Get a single Help Center article by ID with full body content.
+        
+        Args:
+            article_id: The article ID
+            
+        Returns:
+            Article dict with id, title, body, section_id, author_id, html_url, locale, timestamps
+        """
+        try:
+            article = self.client.help_center.articles(id=article_id)
+            return {
+                'id': article.id,
+                'title': article.title,
+                'body': article.body,
+                'section_id': article.section_id,
+                'author_id': article.author_id,
+                'html_url': article.html_url,
+                'locale': article.locale,
+                'created_at': str(article.created_at),
+                'updated_at': str(article.updated_at)
+            }
+        except Exception as e:
+            raise Exception(f"Failed to get article {article_id}: {str(e)}")
+
+    def update_article(self, article_id: int, title: str = None, body: str = None) -> Dict[str, Any]:
+        """
+        Update a Help Center article's title and/or body.
+        Uses the Translations API endpoint to update content.
+        
+        Args:
+            article_id: The article ID to update
+            title: New title (optional)
+            body: New HTML body content (optional)
+            
+        Returns:
+            Updated article dict with id, title, body, locale, updated_at
+        """
+        try:
+            # First get the article to find its locale
+            article = self.client.help_center.articles(id=article_id)
+            locale = article.locale
+            
+            # Build update payload
+            translation_data = {}
+            if title is not None:
+                translation_data['title'] = title
+            if body is not None:
+                translation_data['body'] = body
+            
+            if not translation_data:
+                raise ValueError("Must provide at least 'title' or 'body' to update")
+            
+            # Use direct API to update translation
+            url = f"{self.base_url}/help_center/articles/{article_id}/translations/{locale}.json"
+            
+            payload = json.dumps({'translation': translation_data}).encode('utf-8')
+            req = urllib.request.Request(url, data=payload, method='PUT')
+            req.add_header('Authorization', self.auth_header)
+            req.add_header('Content-Type', 'application/json')
+            
+            with urllib.request.urlopen(req) as response:
+                data = json.loads(response.read().decode())
+            
+            translation = data.get('translation', {})
+            return {
+                'id': article_id,
+                'title': translation.get('title'),
+                'body': translation.get('body'),
+                'locale': translation.get('locale'),
+                'updated_at': translation.get('updated_at')
+            }
+        except urllib.error.HTTPError as e:
+            error_body = e.read().decode() if e.fp else "No response body"
+            raise Exception(f"Failed to update article {article_id}: HTTP {e.code} - {e.reason}. {error_body}")
+        except Exception as e:
+            raise Exception(f"Failed to update article {article_id}: {str(e)}")
+
     def create_ticket(
         self,
         subject: str,
