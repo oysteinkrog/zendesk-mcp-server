@@ -244,6 +244,62 @@ async def handle_list_tools() -> list[types.Tool]:
                 },
                 "required": ["ticket_id"]
             }
+        ),
+        # Help Center Article Tools
+        types.Tool(
+            name="search_articles",
+            description="Search Help Center articles by keyword or phrase",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Search query string"
+                    },
+                    "per_page": {
+                        "type": "integer",
+                        "description": "Number of results per page (default 25, max 100)",
+                        "default": 25
+                    }
+                },
+                "required": ["query"]
+            }
+        ),
+        types.Tool(
+            name="get_article",
+            description="Get a single Help Center article by ID with full content",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "article_id": {
+                        "type": "integer",
+                        "description": "The article ID"
+                    }
+                },
+                "required": ["article_id"]
+            }
+        ),
+        types.Tool(
+            name="update_article",
+            description="Update a Help Center article's title and/or body",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "article_id": {
+                        "type": "integer",
+                        "description": "The article ID to update"
+                    },
+                    "title": {
+                        "type": "string",
+                        "description": "New title (optional)"
+                    },
+                    "body": {
+                        "type": "string",
+                        "description": "New HTML body content (optional)"
+                    }
+                },
+                "required": ["article_id"]
+            }
         )
     ]
 
@@ -334,6 +390,44 @@ async def handle_call_tool(
             return [types.TextContent(
                 type="text",
                 text=json.dumps({"message": "Ticket updated successfully", "ticket": updated}, indent=2)
+            )]
+
+        # Help Center Article Tools
+        elif name == "search_articles":
+            if not arguments:
+                raise ValueError("Missing arguments")
+            query = arguments["query"]
+            per_page = arguments.get("per_page", 25)
+            results = zendesk_client.search_articles(query, per_page)
+            return [types.TextContent(
+                type="text",
+                text=json.dumps(results, indent=2)
+            )]
+
+        elif name == "get_article":
+            if not arguments:
+                raise ValueError("Missing arguments")
+            article_id = arguments["article_id"]
+            article = zendesk_client.get_article(article_id)
+            return [types.TextContent(
+                type="text",
+                text=json.dumps(article, indent=2)
+            )]
+
+        elif name == "update_article":
+            if not arguments:
+                raise ValueError("Missing arguments")
+            article_id = arguments["article_id"]
+            title = arguments.get("title")
+            body = arguments.get("body")
+            if not title and not body:
+                raise ValueError("Must provide at least 'title' or 'body' to update")
+            result = zendesk_client.update_article(article_id, title=title, body=body)
+            # Invalidate knowledge base cache after article update
+            get_cached_kb.cache_clear()
+            return [types.TextContent(
+                type="text",
+                text=json.dumps({"message": "Article updated successfully", "article": result}, indent=2)
             )]
 
         else:
